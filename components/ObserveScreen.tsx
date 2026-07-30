@@ -96,7 +96,7 @@ export function ObserveScreen({ raceId }: ObserveScreenProps) {
           </p>
           <Link
             href={`/races/${raceId}/result`}
-            className="mt-0.5 inline-block text-xs text-muted underline"
+            className="mt-1 inline-flex h-11 items-center justify-center rounded-full bg-accent px-4 text-xs font-semibold text-accent-foreground"
           >
             結果を入力
           </Link>

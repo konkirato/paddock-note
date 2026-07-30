@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { RaceCard } from "@/components/RaceCard";
 import { SummaryCard } from "@/components/SummaryCard";
 import { useStore } from "@/lib/store";
@@ -24,12 +26,12 @@ export default function HomePage() {
         ))}
       </div>
 
-      <button
-        type="button"
-        className="sticky bottom-3 mt-4 h-[52px] w-full rounded-[13px] bg-accent text-base font-semibold text-accent-foreground shadow-lg"
+      <Link
+        href="/races/new"
+        className="sticky bottom-3 mt-4 flex h-[52px] w-full items-center justify-center rounded-[13px] bg-accent text-base font-semibold text-accent-foreground shadow-lg"
       >
         ＋ 新規レース
-      </button>
+      </Link>
     </main>
   );
 }

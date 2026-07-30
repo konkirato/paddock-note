@@ -71,6 +71,7 @@ const REPRESENTATIVE_ODDS: Record<OddsBand, number> = {
 interface StoreContextValue {
   races: Race[];
   getRace: (raceId: string) => Race | undefined;
+  addRace: (input: Omit<Race, "id">) => string;
 
   getMark: (raceId: string, horseNo: number, field: ObservationField["key"]) => MarkValue | null;
   setMark: (
@@ -108,11 +109,17 @@ function resultId(raceId: string, horseNo: number) {
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [races] = useState<Race[]>(INITIAL_RACES);
+  const [races, setRaces] = useState<Race[]>(INITIAL_RACES);
   const [observations, setObservations] = useState<Observation[]>(INITIAL_OBSERVATIONS);
   const [results, setResults] = useState<Result[]>(INITIAL_RESULTS);
 
   const getRace = useCallback((raceId: string) => races.find((r) => r.id === raceId), [races]);
+
+  const addRace = useCallback((input: Omit<Race, "id">) => {
+    const id = `race-${Date.now()}`;
+    setRaces((prev) => [...prev, { ...input, id }]);
+    return id;
+  }, []);
 
   const getObservationsForRace = useCallback(
     (raceId: string) => observations.filter((o) => o.raceId === raceId),
@@ -297,6 +304,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     () => ({
       races,
       getRace,
+      addRace,
       getMark,
       setMark,
       clearMark,
@@ -312,6 +320,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [
       races,
       getRace,
+      addRace,
       getMark,
       setMark,
       clearMark,
