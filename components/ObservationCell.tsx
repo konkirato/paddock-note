@@ -4,32 +4,36 @@ import { useLongPress } from "@/hooks/useLongPress";
 import type { MarkValue } from "@/types";
 
 interface ObservationCellProps {
-  mark: MarkValue | undefined;
+  mark: MarkValue | null;
+  size: "lg" | "md";
   onOpen: () => void;
   onClear: () => void;
 }
 
-export function ObservationCell({ mark, onOpen, onClear }: ObservationCellProps) {
+const SIZE_CLASSES: Record<ObservationCellProps["size"], string> = {
+  lg: "h-12 w-12 text-lg",
+  md: "h-11 w-11 text-base",
+};
+
+export function ObservationCell({ mark, size, onOpen, onClear }: ObservationCellProps) {
   const longPress = useLongPress({
     onLongPress: onClear,
     onClick: onOpen,
   });
 
-  const hasMark = mark !== undefined;
+  const hasMark = mark !== null;
 
   return (
-    <td className="p-1 text-center">
-      <button
-        type="button"
-        {...longPress}
-        className={`min-h-11 min-w-11 w-full touch-manipulation select-none rounded-md border-2 text-lg font-bold ${
-          hasMark
-            ? "border-foreground bg-foreground text-background"
-            : "border-border bg-background text-foreground"
-        }`}
-      >
-        {mark ?? ""}
-      </button>
-    </td>
+    <button
+      type="button"
+      {...longPress}
+      className={`shrink-0 touch-manipulation select-none rounded-lg border font-bold ${SIZE_CLASSES[size]} ${
+        hasMark
+          ? "border-accent bg-accent text-accent-foreground"
+          : "border-border bg-card text-foreground"
+      }`}
+    >
+      {mark ?? ""}
+    </button>
   );
 }

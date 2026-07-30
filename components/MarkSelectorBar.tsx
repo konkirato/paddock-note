@@ -3,28 +3,41 @@ import type { MarkValue } from "@/types";
 const MARK_VALUES: MarkValue[] = ["◎", "○", "△", "×"];
 
 interface MarkSelectorBarProps {
-  horseName: string;
-  axisLabel: string;
+  horseNo: number;
+  fieldLabel: string;
+  currentMark: MarkValue | null;
   onSelect: (mark: MarkValue) => void;
 }
 
-export function MarkSelectorBar({ horseName, axisLabel, onSelect }: MarkSelectorBarProps) {
+export function MarkSelectorBar({
+  horseNo,
+  fieldLabel,
+  currentMark,
+  onSelect,
+}: MarkSelectorBarProps) {
   return (
-    <div className="flex flex-col gap-2 border-y-2 border-foreground bg-foreground/5 p-3">
-      <p className="text-sm font-bold">
-        {horseName} — {axisLabel}
+    <div className="flex flex-col gap-2 border-y border-border bg-background px-3 py-3">
+      <p className="text-xs text-muted">
+        {horseNo}番・{fieldLabel}
       </p>
-      <div className="flex gap-2">
-        {MARK_VALUES.map((mark) => (
-          <button
-            key={mark}
-            type="button"
-            onClick={() => onSelect(mark)}
-            className="min-h-11 min-w-11 flex-1 rounded-md border-2 border-foreground bg-background text-xl font-bold text-foreground active:bg-foreground active:text-background"
-          >
-            {mark}
-          </button>
-        ))}
+      <div className="flex gap-1.5">
+        {MARK_VALUES.map((mark) => {
+          const isSelected = mark === currentMark;
+          return (
+            <button
+              key={mark}
+              type="button"
+              onClick={() => onSelect(mark)}
+              className={`h-11 flex-1 rounded-lg border text-lg font-bold ${
+                isSelected
+                  ? "border-accent bg-accent text-accent-foreground"
+                  : "border-border bg-card text-foreground"
+              }`}
+            >
+              {mark}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

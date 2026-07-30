@@ -1,114 +1,117 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
 
-import { ObservationTable } from "@/components/ObservationTable";
+import type { MarksByField } from "@/components/HorseRow";
+import { ObservationList, type HorseListItem } from "@/components/ObservationList";
 import { useClickOutside } from "@/hooks/useClickOutside";
-import { usePaddockNote } from "@/lib/paddock-note-context";
-import type { MarkValue, ObservationAxis } from "@/types";
-
-interface OpenCell {
-  horseId: string;
-  axis: ObservationAxis;
-}
+import type { ObservationField } from "@/lib/observationFields";
+import { useStore } from "@/lib/store";
+import { getWakuColor, getWakuNumber } from "@/lib/waku";
+import type { MarkValue } from "@/types";
 
 interface ObserveScreenProps {
   raceId: string;
 }
 
+interface OpenCell {
+  horseNo: number;
+  field: ObservationField["key"];
+}
+
 export function ObserveScreen({ raceId }: ObserveScreenProps) {
-  const router = useRouter();
-  const {
-    getRace,
-    getHorsesForRace,
-    getObservationMark,
-    setObservationMark,
-    clearObservationMark,
-    getRaceProgress,
-  } = usePaddockNote();
+  const { getRace, getMark, setMark, clearMark, getRaceProgress } = useStore();
+  const race = getRace(raceId);
+
+  const horses: HorseListItem[] = useMemo(() => {
+    if (!race) return [];
+    return Array.from({ length: race.heads }, (_, i) => {
+      const horseNo = i + 1;
+      const waku = getWakuNumber(horseNo, race.heads);
+      return { horseNo, wakuColor: getWakuColor(waku) };
+    });
+  }, [race]);
+
+  const marksByHorseNo = useMemo(() => {
+    const map: Record<number, MarksByField> = {};
+    for (const horse of horses) {
+      map[horse.horseNo] = {
+        overall: getMark(raceId, horse.horseNo, "overall"),
+        body: getMark(raceId, horse.horseNo, "body"),
+        demeanor: getMark(raceId, horse.horseNo, "demeanor"),
+        movement: getMark(raceId, horse.horseNo, "movement"),
+      };
+    }
+    return map;
+  }, [horses, getMark, raceId]);
 
   const [openCell, setOpenCell] = useState<OpenCell | null>(null);
-  const tableContainerRef = useRef<HTMLDivElement>(null);
-
-  useClickOutside(tableContainerRef, () => setOpenCell(null), openCell !== null);
-
-  const race = getRace(raceId);
-  const horses = useMemo(() => getHorsesForRace(raceId), [getHorsesForRace, raceId]);
-  const progress = getRaceProgress(raceId);
+  const listRef = useRef<HTMLDivElement>(null);
+  useClickOutside(listRef, () => setOpenCell(null), openCell !== null);
 
   if (!race) {
     return (
-      <main className="mx-auto max-w-md p-4">
-        <p>レースが見つかりません。</p>
-        <Link href="/" className="mt-4 inline-block underline">
+      <main className="mx-auto max-w-[380px] p-3">
+        <p className="text-sm text-foreground">レースが見つかりません。</p>
+        <Link href="/" className="mt-2 inline-block text-sm text-muted underline">
           レース一覧に戻る
         </Link>
       </main>
     );
   }
 
-  function handleOpenCell(horseId: string, axis: ObservationAxis) {
+  const progress = getRaceProgress(raceId);
+
+  function handleOpenField(horseNo: number, field: ObservationField["key"]) {
     setOpenCell((prev) =>
-      prev && prev.horseId === horseId && prev.axis === axis ? null : { horseId, axis }
+      prev && prev.horseNo === horseNo && prev.field === field ? null : { horseNo, field }
     );
   }
 
-  function handleClearCell(horseId: string, axis: ObservationAxis) {
-    clearObservationMark(raceId, horseId, axis);
+  function handleClearField(horseNo: number, field: ObservationField["key"]) {
+    clearMark(raceId, horseNo, field);
   }
 
-  function handleSelectMark(horseId: string, axis: ObservationAxis, mark: MarkValue) {
-    setObservationMark(raceId, horseId, axis, mark);
+  function handleSelectMark(horseNo: number, field: ObservationField["key"], mark: MarkValue) {
+    setMark(raceId, horseNo, field, mark);
     setOpenCell(null);
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col pb-24">
-      <header className="sticky top-0 z-10 border-b-2 border-foreground bg-background p-3">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <Link href="/" className="text-xs text-foreground/70 underline">
-              ← レース一覧
-            </Link>
-            <h1 className="text-base font-bold">
-              {race.track} {race.raceNumber}R {race.name}
-            </h1>
-          </div>
-          <p className="shrink-0 text-lg font-bold">
-            {progress.done}/{progress.total}頭
+    <main className="mx-auto max-w-[380px] p-3">
+      <header className="sticky top-0 z-10 mb-3 flex items-start justify-between gap-2 rounded-[14px] border border-border bg-card px-3 py-3">
+        <div>
+          <Link href="/" className="text-xs text-muted underline">
+            ← レース一覧
+          </Link>
+          <p className="mt-0.5 text-xs text-muted">
+            {race.track} ・ {race.date}
           </p>
+          <p className="text-base font-bold text-foreground">{race.raceNo}R</p>
         </div>
-        <Link
-          href={`/races/${raceId}/result`}
-          className="mt-1 inline-block text-xs text-foreground/70 underline"
-        >
-          結果を入力する
-        </Link>
+        <div className="shrink-0 text-right">
+          <p className="text-xl font-bold text-foreground">
+            {progress.done}/{race.heads}頭
+          </p>
+          <Link
+            href={`/races/${raceId}/result`}
+            className="mt-0.5 inline-block text-xs text-muted underline"
+          >
+            結果を入力
+          </Link>
+        </div>
       </header>
 
-      <div ref={tableContainerRef} className="flex-1 overflow-x-auto">
-        <ObservationTable
+      <div ref={listRef}>
+        <ObservationList
           horses={horses}
+          marksByHorseNo={marksByHorseNo}
           openCell={openCell}
-          getMark={(horseId, axis) => getObservationMark(raceId, horseId, axis)}
-          onOpenCell={handleOpenCell}
-          onClearCell={handleClearCell}
+          onOpenField={handleOpenField}
+          onClearField={handleClearField}
           onSelectMark={handleSelectMark}
         />
-      </div>
-
-      <div className="fixed inset-x-0 bottom-0 z-10 border-t-2 border-foreground bg-background p-3">
-        <div className="mx-auto max-w-md">
-          <button
-            type="button"
-            onClick={() => router.push("/")}
-            className="min-h-11 w-full rounded-md bg-foreground text-lg font-bold text-background"
-          >
-            保存する
-          </button>
-        </div>
       </div>
     </main>
   );
