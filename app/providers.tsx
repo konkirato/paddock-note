@@ -2,8 +2,8 @@
 
 import type { ReactNode } from "react";
 
-import { PaddockNoteProvider } from "@/lib/paddock-note-context";
+import { StoreProvider } from "@/lib/store";
 
 export function Providers({ children }: { children: ReactNode }) {
-  return <PaddockNoteProvider>{children}</PaddockNoteProvider>;
+  return <StoreProvider>{children}</StoreProvider>;
 }
