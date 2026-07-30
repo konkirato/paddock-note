@@ -1,22 +1,18 @@
 @import "tailwindcss";
 
+/* 屋外の明るい場所での視認性を優先し、ダークモードへの自動切替は行わない。 */
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --border: #d4d4d4;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-border: var(--border);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
