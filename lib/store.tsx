@@ -4,12 +4,26 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 
-import { INITIAL_OBSERVATIONS, INITIAL_RACES, INITIAL_RESULTS } from "@/lib/mockData";
+import {
+  observationFromRow,
+  observationToRow,
+  raceFromRow,
+  raceToRow,
+  resultFromRow,
+  resultToRow,
+  type ObservationRow,
+  type RaceRow,
+  type ResultRow,
+} from "@/lib/supabase/mappers";
+import { createClient } from "@/lib/supabase/client";
+import { randomId } from "@/lib/id";
 import type { ObservationField } from "@/lib/observationFields";
 import { getWakuNumber } from "@/lib/waku";
 import type {
@@ -59,7 +73,7 @@ export interface OverallStats {
 
 const ODDS_BANDS: OddsBand[] = ["~2.0", "~5.0", "~10.0", "~20.0", "20.0~"];
 
-// 回収率概算用の代表オッズ(帯の中央値相当)。実オッズが無いモックのための近似値。
+// 回収率概算用の代表オッズ(帯の中央値相当)。実オッズが無いための近似値。
 const REPRESENTATIVE_ODDS: Record<OddsBand, number> = {
   "~2.0": 1.5,
   "~5.0": 3.5,
@@ -72,6 +86,8 @@ interface StoreContextValue {
   races: Race[];
   getRace: (raceId: string) => Race | undefined;
   addRace: (input: Omit<Race, "id">) => string;
+  // 頭数を減らした場合、範囲外になった馬の観察・結果データは削除する。
+  updateRace: (raceId: string, patch: Partial<Omit<Race, "id">>) => void;
 
   getMark: (raceId: string, horseNo: number, field: ObservationField["key"]) => MarkValue | null;
   setMark: (
@@ -81,6 +97,15 @@ interface StoreContextValue {
     mark: MarkValue
   ) => void;
   clearMark: (raceId: string, horseNo: number, field: ObservationField["key"]) => void;
+  // 複数フィールド(手入力した項目+自動計算した総合など)を1回の更新にまとめて
+  // 保存する。同じ馬の行に対して連続でsetMark/clearMarkを呼ぶと、別々の
+  // 非同期書き込みが競合してDBの一意制約エラーになることがあるため、
+  // 総合の自動再計算はこちらを使う。
+  setObservationFields: (
+    raceId: string,
+    horseNo: number,
+    patch: Partial<Pick<Observation, "overall" | "body" | "demeanor" | "movement">>
+  ) => void;
   getRaceProgress: (raceId: string) => RaceProgress;
   getObservationsForRace: (raceId: string) => Observation[];
 
@@ -89,7 +114,7 @@ interface StoreContextValue {
     raceId: string,
     horseNo: number,
     finish: FinishPosition,
-    oddsBand: OddsBand
+    oddsBand: OddsBand | null
   ) => void;
 
   getRaceSummary: (raceId: string) => RaceSummary;
@@ -109,17 +134,160 @@ function resultId(raceId: string, horseNo: number) {
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [races, setRaces] = useState<Race[]>(INITIAL_RACES);
-  const [observations, setObservations] = useState<Observation[]>(INITIAL_OBSERVATIONS);
-  const [results, setResults] = useState<Result[]>(INITIAL_RESULTS);
+  const supabase = useMemo(() => createClient(), []);
+  const [races, setRacesState] = useState<Race[]>([]);
+  const [observations, setObservationsState] = useState<Observation[]>([]);
+  const [results, setResultsState] = useState<Result[]>([]);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+
+  // React の setState は更新関数を必ず同期的に評価するとは限らないため、
+  // 同一イベント内で連続してマークを更新する(総合の自動再計算)場合に前の
+  // 更新結果を見落とすことがある。ref に最新値を持たせ、更新関数は常に
+  // ref を起点に計算することで、呼び出し直後から確実に最新値を参照できる。
+  const racesRef = useRef<Race[]>([]);
+  const observationsRef = useRef<Observation[]>([]);
+  const resultsRef = useRef<Result[]>([]);
+
+  const setRaces = useCallback((updater: (prev: Race[]) => Race[]) => {
+    const next = updater(racesRef.current);
+    racesRef.current = next;
+    setRacesState(next);
+  }, []);
+
+  const setObservations = useCallback((updater: (prev: Observation[]) => Observation[]) => {
+    const next = updater(observationsRef.current);
+    observationsRef.current = next;
+    setObservationsState(next);
+  }, []);
+
+  const setResults = useCallback((updater: (prev: Result[]) => Result[]) => {
+    const next = updater(resultsRef.current);
+    resultsRef.current = next;
+    setResultsState(next);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      const [racesRes, observationsRes, resultsRes] = await Promise.all([
+        supabase.from("races").select("*"),
+        supabase.from("observations").select("*"),
+        supabase.from("results").select("*"),
+      ]);
+      if (cancelled) return;
+
+      const error = racesRes.error ?? observationsRes.error ?? resultsRes.error;
+      if (error) {
+        console.error(error);
+        setStatus("error");
+        return;
+      }
+
+      const loadedRaces = ((racesRes.data ?? []) as RaceRow[]).map(raceFromRow);
+      const headsByRaceId = new Map(loadedRaces.map((race) => [race.id, race.heads]));
+      const loadedObservations = ((observationsRes.data ?? []) as ObservationRow[])
+        .filter((row) => headsByRaceId.has(row.race_id))
+        .map((row) => observationFromRow(row, headsByRaceId.get(row.race_id)!));
+      const loadedResults = ((resultsRes.data ?? []) as ResultRow[]).map(resultFromRow);
+
+      setRaces(() => loadedRaces);
+      setObservations(() => loadedObservations);
+      setResults(() => loadedResults);
+      setStatus("ready");
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
 
   const getRace = useCallback((raceId: string) => races.find((r) => r.id === raceId), [races]);
 
-  const addRace = useCallback((input: Omit<Race, "id">) => {
-    const id = `race-${Date.now()}`;
-    setRaces((prev) => [...prev, { ...input, id }]);
-    return id;
-  }, []);
+  const addRace = useCallback(
+    (input: Omit<Race, "id">) => {
+      const id = randomId();
+      const race: Race = { ...input, id };
+      setRaces((prev) => [...prev, race]);
+      void supabase
+        .from("races")
+        .insert(raceToRow(race))
+        .then(({ error }) => {
+          if (error) {
+            console.error(error);
+            setRaces((prev) => prev.filter((r) => r.id !== id));
+          }
+        });
+      return id;
+    },
+    [supabase]
+  );
+
+  const updateRace = useCallback(
+    (raceId: string, patch: Partial<Omit<Race, "id">>) => {
+      const previousRace = races.find((r) => r.id === raceId);
+      if (!previousRace) return;
+      const nextRace: Race = { ...previousRace, ...patch };
+
+      setRaces((prev) => prev.map((r) => (r.id === raceId ? nextRace : r)));
+
+      void supabase
+        .from("races")
+        .update(raceToRow(nextRace))
+        .eq("id", raceId)
+        .then(({ error }) => {
+          if (error) {
+            console.error(error);
+            setRaces((prev) => prev.map((r) => (r.id === raceId ? previousRace : r)));
+          }
+        });
+
+      // 頭数を減らした場合、範囲外(元の頭数以内だが新しい頭数を超える馬番)の
+      // 観察・結果データはローカル/DB双方から削除して整合性を保つ。
+      if (nextRace.heads < previousRace.heads) {
+        const newHeads = nextRace.heads;
+        let removedObservations: Observation[] = [];
+        setObservations((prev) => {
+          removedObservations = prev.filter((o) => o.raceId === raceId && o.horseNo > newHeads);
+          return prev.filter((o) => !(o.raceId === raceId && o.horseNo > newHeads));
+        });
+        if (removedObservations.length > 0) {
+          void supabase
+            .from("observations")
+            .delete()
+            .eq("race_id", raceId)
+            .gt("horse_no", newHeads)
+            .then(({ error }) => {
+              if (error) {
+                console.error(error);
+                setObservations((prev) => [...prev, ...removedObservations]);
+              }
+            });
+        }
+
+        let removedResults: Result[] = [];
+        setResults((prev) => {
+          removedResults = prev.filter((r) => r.raceId === raceId && r.horseNo > newHeads);
+          return prev.filter((r) => !(r.raceId === raceId && r.horseNo > newHeads));
+        });
+        if (removedResults.length > 0) {
+          void supabase
+            .from("results")
+            .delete()
+            .eq("race_id", raceId)
+            .gt("horse_no", newHeads)
+            .then(({ error }) => {
+              if (error) {
+                console.error(error);
+                setResults((prev) => [...prev, ...removedResults]);
+              }
+            });
+        }
+      }
+    },
+    [races, supabase]
+  );
 
   const getObservationsForRace = useCallback(
     (raceId: string) => observations.filter((o) => o.raceId === raceId),
@@ -134,42 +302,70 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [observations]
   );
 
-  const upsertMark = useCallback(
-    (raceId: string, horseNo: number, field: ObservationField["key"], mark: MarkValue | null) => {
+  const setObservationFields = useCallback(
+    (
+      raceId: string,
+      horseNo: number,
+      patch: Partial<Pick<Observation, "overall" | "body" | "demeanor" | "movement">>
+    ) => {
       const race = races.find((r) => r.id === raceId);
       if (!race) return;
       const id = observationId(raceId, horseNo);
+
+      // previous/next は setObservations の更新関数の中で確定させる。同じ馬に対して
+      // 同一イベント内で連続して更新する(総合の自動再計算)ことがあるため、外側の
+      // クロージャの observations を直接参照すると、後続の呼び出しが前の呼び出しの
+      // 結果を見落として上書き・重複を起こす。また、同じ馬の行への書き込みは
+      // 呼び出しごとに別々のリクエストにせず必ず1回のpatchにまとめること。
+      // (別々のリクエストにすると非同期の書き込みが競合し、DBの一意制約
+      // (race_id, horse_no)エラーになることがある)
+      let previous: Observation | undefined;
+      let next: Observation;
       setObservations((prev) => {
-        const existing = prev.find((o) => o.id === id);
-        if (existing) {
-          return prev.map((o) => (o.id === id ? { ...o, [field]: mark } : o));
-        }
-        const seeded: Observation = {
-          id,
-          raceId,
-          horseNo,
-          waku: getWakuNumber(horseNo, race.heads),
-          overall: null,
-          body: null,
-          demeanor: null,
-          movement: null,
-        };
-        return [...prev, { ...seeded, [field]: mark }];
+        previous = prev.find((o) => o.id === id);
+        next = previous
+          ? { ...previous, ...patch }
+          : {
+              id,
+              raceId,
+              horseNo,
+              waku: getWakuNumber(horseNo, race.heads),
+              overall: null,
+              body: null,
+              demeanor: null,
+              movement: null,
+              ...patch,
+            };
+        return previous ? prev.map((o) => (o.id === id ? next : o)) : [...prev, next];
       });
+
+      void supabase
+        .from("observations")
+        .upsert(observationToRow(next!), { onConflict: "id" })
+        .then(({ error }) => {
+          if (error) {
+            console.error(error);
+            setObservations((prev) =>
+              previous
+                ? prev.map((o) => (o.id === id ? previous! : o))
+                : prev.filter((o) => o.id !== id)
+            );
+          }
+        });
     },
-    [races]
+    [races, supabase]
   );
 
   const setMark = useCallback(
     (raceId: string, horseNo: number, field: ObservationField["key"], mark: MarkValue) =>
-      upsertMark(raceId, horseNo, field, mark),
-    [upsertMark]
+      setObservationFields(raceId, horseNo, { [field]: mark }),
+    [setObservationFields]
   );
 
   const clearMark = useCallback(
     (raceId: string, horseNo: number, field: ObservationField["key"]) =>
-      upsertMark(raceId, horseNo, field, null),
-    [upsertMark]
+      setObservationFields(raceId, horseNo, { [field]: null }),
+    [setObservationFields]
   );
 
   const getRaceProgress = useCallback(
@@ -188,17 +384,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const setResult = useCallback(
-    (raceId: string, horseNo: number, finish: FinishPosition, oddsBand: OddsBand) => {
+    (raceId: string, horseNo: number, finish: FinishPosition, oddsBand: OddsBand | null) => {
       const id = resultId(raceId, horseNo);
+
+      let previous: Result | undefined;
+      let next: Result;
       setResults((prev) => {
-        const existing = prev.find((r) => r.id === id);
-        if (existing) {
-          return prev.map((r) => (r.id === id ? { ...r, finish, oddsBand } : r));
-        }
-        return [...prev, { id, raceId, horseNo, finish, oddsBand }];
+        previous = prev.find((r) => r.id === id);
+        next = { id, raceId, horseNo, finish, oddsBand };
+        return previous ? prev.map((r) => (r.id === id ? next : r)) : [...prev, next];
       });
+
+      void supabase
+        .from("results")
+        .upsert(resultToRow(next!), { onConflict: "id" })
+        .then(({ error }) => {
+          if (error) {
+            console.error(error);
+            setResults((prev) =>
+              previous ? prev.map((r) => (r.id === id ? previous! : r)) : prev.filter((r) => r.id !== id)
+            );
+          }
+        });
     },
-    []
+    [supabase]
   );
 
   const getRaceSummary = useCallback(
@@ -253,14 +462,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     ).length;
     const observedHorseCount = observations.filter((o) => o.overall != null).length;
 
+    // オッズ帯が未入力の結果は回収率の計算対象から除外する(的中率には含める)。
+    const picksWithOdds = picks.filter((p) => p.result.oddsBand !== null);
     const estimatedReturnRate =
-      resultedRaceCount === 0
+      picksWithOdds.length === 0
         ? null
-        : (picks.reduce((sum, p) => {
+        : (picksWithOdds.reduce((sum, p) => {
             if (p.result.finish !== "1着") return sum;
-            return sum + REPRESENTATIVE_ODDS[p.result.oddsBand] * 100;
+            return sum + REPRESENTATIVE_ODDS[p.result.oddsBand!] * 100;
           }, 0) /
-            (resultedRaceCount * 100)) *
+            (picksWithOdds.length * 100)) *
           100;
 
     return {
@@ -305,9 +516,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       races,
       getRace,
       addRace,
+      updateRace,
       getMark,
       setMark,
       clearMark,
+      setObservationFields,
       getRaceProgress,
       getObservationsForRace,
       getResult,
@@ -320,10 +533,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [
       races,
       getRace,
+      updateRace,
       addRace,
       getMark,
       setMark,
       clearMark,
+      setObservationFields,
       getRaceProgress,
       getObservationsForRace,
       getResult,
@@ -334,6 +549,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       getOddsBandBreakdown,
     ]
   );
+
+  if (status === "loading") {
+    return (
+      <div className="flex min-h-full items-center justify-center p-6 text-sm text-muted">
+        読み込み中...
+      </div>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <div className="flex min-h-full items-center justify-center p-6 text-sm text-muted">
+        データの読み込みに失敗しました。再読み込みしてください。
+      </div>
+    );
+  }
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
