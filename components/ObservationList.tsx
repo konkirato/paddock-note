@@ -6,6 +6,9 @@ import { OBSERVATION_FIELDS, type ObservationField } from "@/lib/observationFiel
 import type { WakuColorTokens } from "@/lib/theme";
 import type { MarkValue } from "@/types";
 
+const INPUT_FIELDS = OBSERVATION_FIELDS.filter((field) => !field.readOnly);
+const OVERALL_FIELD = OBSERVATION_FIELDS.find((field) => field.readOnly)!;
+
 export interface HorseListItem {
   horseNo: number;
   wakuColor: WakuColorTokens;
@@ -38,12 +41,17 @@ export function ObservationList({
       <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs text-muted">
         <span className="w-[30px] shrink-0 text-center">馬番</span>
         <div className="flex flex-1 items-center gap-1.5">
-          {OBSERVATION_FIELDS.map((field) => (
+          {INPUT_FIELDS.map((field) => (
             <span key={field.key} className={`text-center ${field.size === "lg" ? "w-12" : "w-11"}`}>
               {field.label}
             </span>
           ))}
         </div>
+        <div className="h-4 w-px shrink-0 bg-border" />
+        <span className="flex w-12 shrink-0 flex-col items-center leading-tight">
+          <span>{OVERALL_FIELD.label}</span>
+          <span className="text-[10px] text-muted/70">自動</span>
+        </span>
       </div>
 
       {horses.map((horse, index) => {

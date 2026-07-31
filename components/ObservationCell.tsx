@@ -28,11 +28,14 @@ export function ObservationCell({ mark, size, readOnly, onOpen, onClear }: Obser
     : "border-border bg-card text-foreground";
 
   if (readOnly) {
+    const readOnlyClasses = hasMark
+      ? "border-foreground/25 bg-foreground/5 text-foreground"
+      : "border-muted/40 text-muted";
     return (
       <div
-        className={`flex shrink-0 items-center justify-center rounded-lg border font-bold ${SIZE_CLASSES[size]} ${markClasses}`}
+        className={`flex shrink-0 items-center justify-center rounded-full border-2 border-dashed font-bold ${SIZE_CLASSES[size]} ${readOnlyClasses}`}
       >
-        {mark ?? ""}
+        {mark ?? "―"}
       </div>
     );
   }

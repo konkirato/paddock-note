@@ -13,6 +13,9 @@ interface HorseRowProps {
   onClearField: (field: ObservationField["key"]) => void;
 }
 
+const INPUT_FIELDS = OBSERVATION_FIELDS.filter((field) => !field.readOnly);
+const OVERALL_FIELD = OBSERVATION_FIELDS.find((field) => field.readOnly)!;
+
 export function HorseRow({ horseNo, wakuColor, marks, onOpenField, onClearField }: HorseRowProps) {
   return (
     <div className="flex items-center gap-2 px-3 py-2">
@@ -27,7 +30,7 @@ export function HorseRow({ horseNo, wakuColor, marks, onOpenField, onClearField 
         {horseNo}
       </div>
       <div className="flex flex-1 items-center gap-1.5">
-        {OBSERVATION_FIELDS.map((field) => (
+        {INPUT_FIELDS.map((field) => (
           <ObservationCell
             key={field.key}
             mark={marks[field.key]}
@@ -38,6 +41,14 @@ export function HorseRow({ horseNo, wakuColor, marks, onOpenField, onClearField 
           />
         ))}
       </div>
+      <div className="h-9 w-px shrink-0 bg-border" />
+      <ObservationCell
+        mark={marks[OVERALL_FIELD.key]}
+        size={OVERALL_FIELD.size}
+        readOnly
+        onOpen={() => {}}
+        onClear={() => {}}
+      />
     </div>
   );
 }
