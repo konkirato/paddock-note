@@ -88,6 +88,8 @@ interface StoreContextValue {
   addRace: (input: Omit<Race, "id">) => string;
   // 頭数を減らした場合、範囲外になった馬の観察・結果データは削除する。
   updateRace: (raceId: string, patch: Partial<Omit<Race, "id">>) => void;
+  // レース本体と、そのレースの観察・結果データをすべて削除する。
+  deleteRace: (raceId: string) => void;
 
   getMark: (raceId: string, horseNo: number, field: ObservationField["key"]) => MarkValue | null;
   setMark: (
@@ -285,6 +287,44 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             });
         }
       }
+    },
+    [races, supabase]
+  );
+
+  const deleteRace = useCallback(
+    (raceId: string) => {
+      const previousRace = races.find((r) => r.id === raceId);
+      if (!previousRace) return;
+
+      // observations/results は races への外部キーに ON DELETE CASCADE が
+      // 設定されているため、レース本体をDBから削除すればDB側は自動で消える。
+      // ローカル state は自分で取り除く。
+      let removedObservations: Observation[] = [];
+      setObservations((prev) => {
+        removedObservations = prev.filter((o) => o.raceId === raceId);
+        return prev.filter((o) => o.raceId !== raceId);
+      });
+
+      let removedResults: Result[] = [];
+      setResults((prev) => {
+        removedResults = prev.filter((r) => r.raceId === raceId);
+        return prev.filter((r) => r.raceId !== raceId);
+      });
+
+      setRaces((prev) => prev.filter((r) => r.id !== raceId));
+
+      void supabase
+        .from("races")
+        .delete()
+        .eq("id", raceId)
+        .then(({ error }) => {
+          if (error) {
+            console.error(error);
+            setRaces((prev) => [...prev, previousRace]);
+            setObservations((prev) => [...prev, ...removedObservations]);
+            setResults((prev) => [...prev, ...removedResults]);
+          }
+        });
     },
     [races, supabase]
   );
@@ -517,6 +557,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       getRace,
       addRace,
       updateRace,
+      deleteRace,
       getMark,
       setMark,
       clearMark,
@@ -534,6 +575,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       races,
       getRace,
       updateRace,
+      deleteRace,
       addRace,
       getMark,
       setMark,

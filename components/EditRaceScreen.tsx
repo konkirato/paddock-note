@@ -13,13 +13,14 @@ interface EditRaceScreenProps {
 
 export function EditRaceScreen({ raceId }: EditRaceScreenProps) {
   const router = useRouter();
-  const { getRace, updateRace } = useStore();
+  const { getRace, updateRace, deleteRace } = useStore();
   const race = getRace(raceId);
 
   const [track, setTrack] = useState(race?.track ?? "中山");
   const [date, setDate] = useState(race?.date ?? "");
   const [raceNo, setRaceNo] = useState(race?.raceNo ?? 11);
   const [heads, setHeads] = useState(race?.heads ?? 16);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   if (!race) {
     return (
@@ -36,6 +37,11 @@ export function EditRaceScreen({ raceId }: EditRaceScreenProps) {
     event.preventDefault();
     updateRace(raceId, { track, date, raceNo, heads });
     router.push(`/races/${raceId}/observe`);
+  }
+
+  function handleDelete() {
+    deleteRace(raceId);
+    router.push("/races");
   }
 
   return (
@@ -65,6 +71,38 @@ export function EditRaceScreen({ raceId }: EditRaceScreenProps) {
           </p>
         )}
       </RaceFieldsForm>
+
+      {confirmingDelete ? (
+        <div className="mt-4 flex flex-col gap-2 rounded-[14px] border border-red-200 bg-red-50 p-3.5">
+          <p className="text-xs text-red-700">
+            このレースの観察・結果データもすべて削除されます。元に戻せません。よろしいですか？
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(false)}
+              className="h-10 flex-1 rounded-lg border border-border bg-card text-sm text-foreground"
+            >
+              キャンセル
+            </button>
+            <button
+              type="button"
+              onClick={handleDelete}
+              className="h-10 flex-1 rounded-lg bg-red-600 text-sm font-semibold text-white"
+            >
+              削除する
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setConfirmingDelete(true)}
+          className="mt-4 h-11 w-full rounded-[11px] border border-red-200 text-sm font-semibold text-red-600"
+        >
+          レースを削除
+        </button>
+      )}
     </main>
   );
 }

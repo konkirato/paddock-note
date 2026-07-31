@@ -21,41 +21,49 @@ export function RaceCard({ race, summary }: RaceCardProps) {
   const badge = STATUS_BADGE[summary.status];
 
   return (
-    <Link
-      href={`/races/${race.id}/observe`}
-      className="flex min-h-11 items-center gap-3 rounded-xl border border-border bg-card px-3.5 py-3 active:bg-background"
-    >
-      <div
-        className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-md text-sm font-bold"
-        style={
-          wakuColor
-            ? {
-                backgroundColor: wakuColor.bg,
-                color: wakuColor.text,
-                border: `1px solid ${wakuColor.border}`,
-              }
-            : { backgroundColor: "var(--background)", color: "var(--muted)", border: "1px solid var(--border)" }
-        }
+    <div className="flex min-h-11 items-center gap-2 rounded-xl border border-border bg-card px-3.5 py-3">
+      <Link
+        href={`/races/${race.id}/observe`}
+        className="flex min-w-0 flex-1 items-center gap-3 active:opacity-70"
       >
-        {summary.primaryHorseNo ?? "-"}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-[15px] font-semibold text-foreground">
-          {race.track} {race.raceNo}R
-          <span className="ml-1.5 text-xs font-normal text-muted">{race.date}</span>
-        </p>
-        <div className="mt-0.5 flex items-center gap-1.5 text-xs">
-          {badge ? (
-            <span className={`rounded-full px-2 py-0.5 font-semibold ${badge.className}`}>
-              {badge.label}
-            </span>
-          ) : null}
-          {summary.hitLabel ? (
-            <span className="font-semibold text-[#1a7a33]">{summary.hitLabel}</span>
-          ) : null}
+        <div
+          className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-md text-sm font-bold"
+          style={
+            wakuColor
+              ? {
+                  backgroundColor: wakuColor.bg,
+                  color: wakuColor.text,
+                  border: `1px solid ${wakuColor.border}`,
+                }
+              : { backgroundColor: "var(--background)", color: "var(--muted)", border: "1px solid var(--border)" }
+          }
+        >
+          {summary.primaryHorseNo ?? "-"}
         </div>
-      </div>
-      <span className="shrink-0 text-lg text-border">›</span>
-    </Link>
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px] font-semibold text-foreground">
+            {race.track} {race.raceNo}R
+            <span className="ml-1.5 text-xs font-normal text-muted">{race.date}</span>
+          </p>
+          <div className="mt-0.5 flex items-center gap-1.5 text-xs">
+            {badge ? (
+              <span className={`rounded-full px-2 py-0.5 font-semibold ${badge.className}`}>
+                {badge.label}
+              </span>
+            ) : null}
+            {summary.hitLabel ? (
+              <span className="font-semibold text-[#1a7a33]">{summary.hitLabel}</span>
+            ) : null}
+          </div>
+        </div>
+        <span className="shrink-0 text-lg text-border">›</span>
+      </Link>
+      <Link
+        href={`/races/${race.id}/edit`}
+        className="shrink-0 rounded-full px-2 py-1 text-xs text-muted underline"
+      >
+        編集
+      </Link>
+    </div>
   );
 }

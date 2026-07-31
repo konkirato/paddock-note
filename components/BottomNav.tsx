@@ -1,34 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 
-import { createClient } from "@/lib/supabase/client";
+import { isImmersiveRoute } from "@/lib/routeVisibility";
 
 const NAV_ITEMS = [
-  { href: "/", label: "レース一覧" },
+  { href: "/", label: "ホーム" },
+  { href: "/races", label: "レース一覧" },
   { href: "/stats", label: "統計" },
 ] as const;
 
-// 観察入力・結果入力画面は保存ボタンが画面下部に固定されるため、
-// 装飾を増やさないようにボトムナビは表示しない。
-function shouldHide(pathname: string) {
-  return pathname.includes("/observe") || pathname.includes("/result");
-}
-
 export function BottomNav() {
   const pathname = usePathname();
-  const router = useRouter();
 
-  if (shouldHide(pathname)) {
+  if (isImmersiveRoute(pathname)) {
     return null;
-  }
-
-  async function handleLogout() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/login");
-    router.refresh();
   }
 
   return (
@@ -47,13 +34,6 @@ export function BottomNav() {
           </Link>
         );
       })}
-      <button
-        type="button"
-        onClick={handleLogout}
-        className="flex-1 min-h-14 flex items-center justify-center text-sm font-medium text-foreground/60"
-      >
-        ログアウト
-      </button>
     </nav>
   );
 }
