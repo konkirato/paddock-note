@@ -32,6 +32,7 @@ export function HorseRow({ horseNo, wakuColor, marks, onOpenField, onClearField 
             key={field.key}
             mark={marks[field.key]}
             size={field.size}
+            readOnly={field.readOnly}
             onOpen={() => onOpenField(field.key)}
             onClear={() => onClearField(field.key)}
           />

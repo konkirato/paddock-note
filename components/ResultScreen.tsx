@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { useStore } from "@/lib/store";
 import type { FinishPosition, OddsBand } from "@/types";
@@ -28,7 +28,7 @@ export function ResultScreen({ raceId }: ResultScreenProps) {
     .filter((o) => o.overall === "◎" || o.overall === "○" || o.overall === "△")
     .sort((a, b) => a.horseNo - b.horseNo);
 
-  const [pending, setPending] = useState<Record<number, PendingResult>>(() => {
+  const [pending, setPendingState] = useState<Record<number, PendingResult>>(() => {
     const initial: Record<number, PendingResult> = {};
     for (const o of targets) {
       const existing = getResult(raceId, o.horseNo);
@@ -39,6 +39,18 @@ export function ResultScreen({ raceId }: ResultScreenProps) {
     }
     return initial;
   });
+  // 着順→オッズ帯のように連続してボタンを押すと、setPending の直後に読む
+  // pending がまだ前回の更新を反映していないことがある(Reactの再描画待ち)。
+  // ref に最新値を持たせ、更新は常に ref を起点に計算することで、
+  // 呼び出し直後から確実に最新値を参照できるようにする。
+  const pendingRef = useRef(pending);
+  function setPending(
+    updater: (prev: Record<number, PendingResult>) => Record<number, PendingResult>
+  ) {
+    const next = updater(pendingRef.current);
+    pendingRef.current = next;
+    setPendingState(next);
+  }
 
   if (!race) {
     return (
@@ -52,17 +64,29 @@ export function ResultScreen({ raceId }: ResultScreenProps) {
   }
 
   function updateField(horseNo: number, patch: Partial<PendingResult>) {
-    const next = { ...pending[horseNo], ...patch };
-    setPending((prev) => ({ ...prev, [horseNo]: next }));
-    if (next.finish && next.oddsBand) {
-      setResult(raceId, horseNo, next.finish, next.oddsBand);
+    let next: PendingResult;
+    setPending((prev) => {
+      next = { ...prev[horseNo], ...patch };
+      return { ...prev, [horseNo]: next };
+    });
+    // オッズ帯が未選択でも着順が決まっていれば保存する(的中率の集計には使うが、
+    // 回収率などオッズが必要な集計からは除外される)。
+    if (next!.finish) {
+      setResult(raceId, horseNo, next!.finish, next!.oddsBand);
     }
   }
 
-  const doneCount = targets.filter(
-    (o) => pending[o.horseNo]?.finish && pending[o.horseNo]?.oddsBand
-  ).length;
-  const allDone = targets.length > 0 && doneCount === targets.length;
+  function handleFinish() {
+    // 着順が未入力の馬は「着外」として確定させ、全頭入力していなくても完了できるようにする。
+    for (const o of targets) {
+      if (!pendingRef.current[o.horseNo]?.finish) {
+        setResult(raceId, o.horseNo, "着外", null);
+      }
+    }
+    router.push("/");
+  }
+
+  const doneCount = targets.filter((o) => pending[o.horseNo]?.finish).length;
 
   return (
     <main className="mx-auto max-w-[380px] p-3 pb-28">
@@ -135,21 +159,24 @@ export function ResultScreen({ raceId }: ResultScreenProps) {
         </>
       )}
 
-      <div className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-background px-3 py-3">
-        <div className="mx-auto max-w-[380px]">
-          <p className="mb-2 text-center text-xs text-muted">
-            {doneCount} / {targets.length} 頭 入力済み
-          </p>
-          <button
-            type="button"
-            disabled={!allDone}
-            onClick={() => router.push("/")}
-            className="h-12 w-full rounded-[11px] bg-accent text-base font-semibold text-accent-foreground disabled:bg-border disabled:text-muted"
-          >
-            結果を保存
-          </button>
+      {targets.length > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-background px-3 py-3">
+          <div className="mx-auto max-w-[380px]">
+            <p className="mb-2 text-center text-xs text-muted">
+              {doneCount < targets.length
+                ? `${doneCount} / ${targets.length} 頭 入力済み(残りは着外として保存されます)`
+                : `${doneCount} / ${targets.length} 頭 入力済み`}
+            </p>
+            <button
+              type="button"
+              onClick={handleFinish}
+              className="h-12 w-full rounded-[11px] bg-accent text-base font-semibold text-accent-foreground"
+            >
+              結果を保存
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </main>
   );
 }

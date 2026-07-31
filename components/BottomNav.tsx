@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+
+import { createClient } from "@/lib/supabase/client";
 
 const NAV_ITEMS = [
   { href: "/", label: "レース一覧" },
@@ -16,9 +18,17 @@ function shouldHide(pathname: string) {
 
 export function BottomNav() {
   const pathname = usePathname();
+  const router = useRouter();
 
   if (shouldHide(pathname)) {
     return null;
+  }
+
+  async function handleLogout() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/login");
+    router.refresh();
   }
 
   return (
@@ -37,6 +47,13 @@ export function BottomNav() {
           </Link>
         );
       })}
+      <button
+        type="button"
+        onClick={handleLogout}
+        className="flex-1 min-h-14 flex items-center justify-center text-sm font-medium text-foreground/60"
+      >
+        ログアウト
+      </button>
     </nav>
   );
 }

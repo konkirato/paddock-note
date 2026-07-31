@@ -28,11 +28,12 @@ export type FinishPosition = "1着" | "2着" | "3着" | "着外";
 // 単勝オッズ帯。的中率を帯ごとに集計する用途を想定。
 export type OddsBand = "~2.0" | "~5.0" | "~10.0" | "~20.0" | "20.0~";
 
-// 1頭ぶんの結果。
+// 1頭ぶんの結果。オッズ帯は未入力のまま結果を確定できるため null を許容する
+// (的中率の計算には使うが、オッズ関連の集計からは除外する)。
 export interface Result {
   id: string; // `${raceId}:${horseNo}`
   raceId: string;
   horseNo: number;
   finish: FinishPosition;
-  oddsBand: OddsBand;
+  oddsBand: OddsBand | null;
 }
