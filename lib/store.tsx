@@ -100,9 +100,7 @@ interface StoreContextValue {
   ) => void;
   clearMark: (raceId: string, horseNo: number, field: ObservationField["key"]) => void;
   // 複数フィールド(手入力した項目+自動計算した総合など)を1回の更新にまとめて
-  // 保存する。同じ馬の行に対して連続でsetMark/clearMarkを呼ぶと、別々の
-  // 非同期書き込みが競合してDBの一意制約エラーになることがあるため、
-  // 総合の自動再計算はこちらを使う。
+  // 保存する。総合の自動再計算はこちらを使い、リクエスト数を抑える。
   setObservationFields: (
     raceId: string,
     horseNo: number,
@@ -168,6 +166,54 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setResultsState(next);
   }, []);
 
+  // 同じ行への書き込みは、前の書き込みが終わってから送る。並行して送ると、
+  // 後から送ったリクエストより先に送ったリクエストが遅れてDBに届いた場合に
+  // 古い内容で上書きされ、画面には出ているのにリロードすると消える。
+  // waitFor には先に終わっている必要がある行のキー(観察・結果ならレース行)を渡す。
+  const writeQueuesRef = useRef(new Map<string, Promise<void>>());
+  const enqueueWrite = useCallback(
+    (key: string, write: () => Promise<void>, waitFor: string[] = []) => {
+      const queues = writeQueuesRef.current;
+      const pending = [key, ...waitFor]
+        .map((k) => queues.get(k))
+        .filter((p): p is Promise<void> => p !== undefined);
+      const task = Promise.all(pending)
+        .then(write)
+        .catch((error) => console.error(error));
+      queues.set(key, task);
+      void task.then(() => {
+        if (queues.get(key) === task) queues.delete(key);
+      });
+    },
+    []
+  );
+
+  // 書き込みに失敗したとき、その行をDBの内容に戻す(DBに無ければローカルからも消す)。
+  const restoreObservation = useCallback(
+    async (id: string) => {
+      const { data } = await supabase.from("observations").select("*").eq("id", id).maybeSingle();
+      const row = data as ObservationRow | null;
+      const heads = row ? racesRef.current.find((r) => r.id === row.race_id)?.heads : undefined;
+      setObservations((prev) => {
+        const rest = prev.filter((o) => o.id !== id);
+        return row && heads ? [...rest, observationFromRow(row, heads)] : rest;
+      });
+    },
+    [supabase, setObservations]
+  );
+
+  const restoreResult = useCallback(
+    async (id: string) => {
+      const { data } = await supabase.from("results").select("*").eq("id", id).maybeSingle();
+      const row = data as ResultRow | null;
+      setResults((prev) => {
+        const rest = prev.filter((r) => r.id !== id);
+        return row ? [...rest, resultFromRow(row)] : rest;
+      });
+    },
+    [supabase, setResults]
+  );
+
   useEffect(() => {
     let cancelled = false;
 
@@ -203,7 +249,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [supabase]);
+  }, [supabase, setRaces, setObservations, setResults]);
 
   const getRace = useCallback((raceId: string) => races.find((r) => r.id === raceId), [races]);
 
@@ -212,18 +258,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const id = randomId();
       const race: Race = { ...input, id };
       setRaces((prev) => [...prev, race]);
-      void supabase
-        .from("races")
-        .insert(raceToRow(race))
-        .then(({ error }) => {
-          if (error) {
-            console.error(error);
-            setRaces((prev) => prev.filter((r) => r.id !== id));
-          }
-        });
+      enqueueWrite(id, async () => {
+        const { error } = await supabase.from("races").insert(raceToRow(race));
+        if (error) {
+          console.error(error);
+          setRaces((prev) => prev.filter((r) => r.id !== id));
+        }
+      });
       return id;
     },
-    [supabase]
+    [supabase, setRaces, enqueueWrite]
   );
 
   const updateRace = useCallback(
@@ -234,16 +278,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       setRaces((prev) => prev.map((r) => (r.id === raceId ? nextRace : r)));
 
-      void supabase
-        .from("races")
-        .update(raceToRow(nextRace))
-        .eq("id", raceId)
-        .then(({ error }) => {
-          if (error) {
-            console.error(error);
-            setRaces((prev) => prev.map((r) => (r.id === raceId ? previousRace : r)));
-          }
-        });
+      enqueueWrite(raceId, async () => {
+        const { error } = await supabase.from("races").update(raceToRow(nextRace)).eq("id", raceId);
+        if (error) {
+          console.error(error);
+          setRaces((prev) => prev.map((r) => (r.id === raceId ? previousRace : r)));
+        }
+      });
 
       // 頭数を減らした場合、範囲外(元の頭数以内だが新しい頭数を超える馬番)の
       // 観察・結果データはローカル/DB双方から削除して整合性を保つ。
@@ -288,7 +329,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [races, supabase]
+    [races, supabase, setRaces, setObservations, setResults, enqueueWrite]
   );
 
   const deleteRace = useCallback(
@@ -313,20 +354,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       setRaces((prev) => prev.filter((r) => r.id !== raceId));
 
-      void supabase
-        .from("races")
-        .delete()
-        .eq("id", raceId)
-        .then(({ error }) => {
-          if (error) {
-            console.error(error);
-            setRaces((prev) => [...prev, previousRace]);
-            setObservations((prev) => [...prev, ...removedObservations]);
-            setResults((prev) => [...prev, ...removedResults]);
-          }
-        });
+      enqueueWrite(raceId, async () => {
+        const { error } = await supabase.from("races").delete().eq("id", raceId);
+        if (error) {
+          console.error(error);
+          setRaces((prev) => [...prev, previousRace]);
+          setObservations((prev) => [...prev, ...removedObservations]);
+          setResults((prev) => [...prev, ...removedResults]);
+        }
+      });
     },
-    [races, supabase]
+    [races, supabase, setRaces, setObservations, setResults, enqueueWrite]
   );
 
   const getObservationsForRace = useCallback(
@@ -352,18 +390,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (!race) return;
       const id = observationId(raceId, horseNo);
 
-      // previous/next は setObservations の更新関数の中で確定させる。同じ馬に対して
-      // 同一イベント内で連続して更新する(総合の自動再計算)ことがあるため、外側の
-      // クロージャの observations を直接参照すると、後続の呼び出しが前の呼び出しの
-      // 結果を見落として上書き・重複を起こす。また、同じ馬の行への書き込みは
-      // 呼び出しごとに別々のリクエストにせず必ず1回のpatchにまとめること。
-      // (別々のリクエストにすると非同期の書き込みが競合し、DBの一意制約
-      // (race_id, horse_no)エラーになることがある)
-      let previous: Observation | undefined;
-      let next: Observation;
+      // 次の値は setObservations の更新関数の中で、ref の最新値を起点に確定させる。
+      // 同じ馬に対して同一イベント内で連続して更新する(総合の自動再計算)ことが
+      // あるため、外側のクロージャの observations を参照すると前の呼び出しの結果を
+      // 見落として上書き・重複を起こす。
       setObservations((prev) => {
-        previous = prev.find((o) => o.id === id);
-        next = previous
+        const previous = prev.find((o) => o.id === id);
+        const next: Observation = previous
           ? { ...previous, ...patch }
           : {
               id,
@@ -379,21 +412,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return previous ? prev.map((o) => (o.id === id ? next : o)) : [...prev, next];
       });
 
-      void supabase
-        .from("observations")
-        .upsert(observationToRow(next!), { onConflict: "id" })
-        .then(({ error }) => {
+      // 送信時点の最新の行を送る(キュー待ちの間に入力が進んでいても最新が保存される)。
+      enqueueWrite(
+        id,
+        async () => {
+          const latest = observationsRef.current.find((o) => o.id === id);
+          if (!latest) return;
+          const { error } = await supabase
+            .from("observations")
+            .upsert(observationToRow(latest), { onConflict: "id" });
           if (error) {
             console.error(error);
-            setObservations((prev) =>
-              previous
-                ? prev.map((o) => (o.id === id ? previous! : o))
-                : prev.filter((o) => o.id !== id)
-            );
+            await restoreObservation(id);
           }
-        });
+        },
+        [raceId]
+      );
     },
-    [races, supabase]
+    [races, supabase, setObservations, enqueueWrite, restoreObservation]
   );
 
   const setMark = useCallback(
@@ -427,27 +463,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (raceId: string, horseNo: number, finish: FinishPosition, oddsBand: OddsBand | null) => {
       const id = resultId(raceId, horseNo);
 
-      let previous: Result | undefined;
-      let next: Result;
-      setResults((prev) => {
-        previous = prev.find((r) => r.id === id);
-        next = { id, raceId, horseNo, finish, oddsBand };
-        return previous ? prev.map((r) => (r.id === id ? next : r)) : [...prev, next];
-      });
+      const next: Result = { id, raceId, horseNo, finish, oddsBand };
+      setResults((prev) =>
+        prev.some((r) => r.id === id) ? prev.map((r) => (r.id === id ? next : r)) : [...prev, next]
+      );
 
-      void supabase
-        .from("results")
-        .upsert(resultToRow(next!), { onConflict: "id" })
-        .then(({ error }) => {
+      enqueueWrite(
+        id,
+        async () => {
+          const latest = resultsRef.current.find((r) => r.id === id);
+          if (!latest) return;
+          const { error } = await supabase
+            .from("results")
+            .upsert(resultToRow(latest), { onConflict: "id" });
           if (error) {
             console.error(error);
-            setResults((prev) =>
-              previous ? prev.map((r) => (r.id === id ? previous! : r)) : prev.filter((r) => r.id !== id)
-            );
+            await restoreResult(id);
           }
-        });
+        },
+        [raceId]
+      );
     },
-    [supabase]
+    [supabase, setResults, enqueueWrite, restoreResult]
   );
 
   const getRaceSummary = useCallback(
