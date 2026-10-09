@@ -89,26 +89,42 @@ export default function StatsPage() {
           <p className="text-sm text-muted">まだ結果が入力されたレースがありません。</p>
         ) : (
           <div className="flex flex-col gap-2.5">
-            {oddsBands.map((b) => (
-              <div key={b.band} className="flex items-center gap-2.5">
-                <span className="w-14 shrink-0 text-xs tabular-nums text-foreground/70">
-                  {b.band}
-                </span>
-                <div className="h-[22px] flex-1 overflow-hidden rounded-md bg-background">
-                  <div
-                    className="flex h-full items-center justify-end rounded-md bg-accent px-1.5"
-                    style={{ width: `${Math.max(b.placeRate, b.count > 0 ? 8 : 0)}%` }}
-                  >
-                    {b.count > 0 ? (
-                      <span className="text-[11px] font-semibold text-accent-foreground">
-                        {Math.round(b.placeRate)}%
-                      </span>
-                    ) : null}
+            {oddsBands.map((b) => {
+              // バーが短いと数値が収まらないので、半分未満のときはバーの右外に出す。
+              const labelInside = b.placeRate >= 50;
+              const label = `${Math.round(b.placeRate)}%`;
+              return (
+                <div key={b.band} className="flex items-center gap-2.5">
+                  <span className="w-14 shrink-0 text-xs tabular-nums text-foreground/70">
+                    {b.band}
+                  </span>
+                  <div className="flex h-[22px] flex-1 items-center overflow-hidden rounded-md bg-background">
+                    {b.count > 0 && (
+                      <>
+                        <div
+                          className={`flex h-full items-center justify-end rounded-md bg-accent ${
+                            labelInside ? "px-1.5" : ""
+                          }`}
+                          style={{ width: `${b.placeRate}%` }}
+                        >
+                          {labelInside && (
+                            <span className="text-[11px] font-semibold text-accent-foreground">
+                              {label}
+                            </span>
+                          )}
+                        </div>
+                        {!labelInside && (
+                          <span className="ml-1.5 text-[11px] font-semibold text-foreground/70">
+                            {label}
+                          </span>
+                        )}
+                      </>
+                    )}
                   </div>
+                  <span className="w-8 shrink-0 text-right text-xs text-muted">{b.count}</span>
                 </div>
-                <span className="w-8 shrink-0 text-right text-xs text-muted">{b.count}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
