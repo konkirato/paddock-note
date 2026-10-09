@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
 import { useClickOutside } from "@/hooks/useClickOutside";
+import { useIsGuest } from "@/hooks/useIsGuest";
 import { isImmersiveRoute } from "@/lib/routeVisibility";
 import { createClient } from "@/lib/supabase/client";
 
@@ -13,6 +14,7 @@ export function LogoutButton() {
   const [confirming, setConfirming] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   useClickOutside(containerRef, () => setConfirming(false), confirming);
+  const isGuest = useIsGuest();
 
   if (isImmersiveRoute(pathname)) {
     return null;
@@ -38,6 +40,11 @@ export function LogoutButton() {
       {confirming && (
         <div className="absolute right-0 mt-2 w-48 rounded-[14px] border border-border bg-card p-3 shadow-lg">
           <p className="mb-2 text-xs text-foreground">ログアウトしますか？</p>
+          {isGuest && (
+            <p className="mb-2 text-xs text-red-600">
+              ゲストのデータはログアウト後に開けなくなります。
+            </p>
+          )}
           <div className="flex gap-1.5">
             <button
               type="button"

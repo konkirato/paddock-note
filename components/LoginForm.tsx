@@ -50,6 +50,21 @@ export function LoginForm() {
     setNotice("確認メールを送信しました。メール内のリンクを開いてから、ログインしてください。");
   }
 
+  async function handleGuest() {
+    setSubmitting(true);
+    setError(null);
+    setNotice(null);
+
+    const { error } = await createClient().auth.signInAnonymously();
+    setSubmitting(false);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    router.push("/");
+    router.refresh();
+  }
+
   return (
     <form
       onSubmit={handleSubmit}
@@ -107,6 +122,20 @@ export function LoginForm() {
       >
         {mode === "login" ? "アカウントをお持ちでない方はこちら" : "既にアカウントをお持ちの方はこちら"}
       </button>
+
+      <div className="flex flex-col gap-1.5 border-t border-border pt-4">
+        <button
+          type="button"
+          onClick={handleGuest}
+          disabled={submitting}
+          className="h-11 w-full rounded-[11px] border border-border bg-card text-sm font-semibold text-foreground disabled:opacity-50"
+        >
+          登録せずに使ってみる
+        </button>
+        <p className="text-center text-[11px] text-muted">
+          あとからメールアドレスを登録すれば、データを引き継げます
+        </p>
+      </div>
     </form>
   );
 }

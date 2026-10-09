@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { GuestBanner } from "@/components/GuestBanner";
 import { RaceCard } from "@/components/RaceCard";
 import { SummaryCard } from "@/components/SummaryCard";
 import { sortRacesDesc } from "@/lib/raceOptions";
@@ -20,6 +21,8 @@ export default function HomePage() {
         <p className="text-[22px] font-bold tracking-wide text-foreground">ソウマガン</p>
         <p className="text-[11px] text-muted">パドック観察ノート</p>
       </div>
+
+      <GuestBanner />
 
       <SummaryCard stats={stats} />
 
